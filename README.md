@@ -77,3 +77,7 @@ format.
 
 Hooks, ERB, custom tmux layout strings, sockets, synchronization, `append`, and
 session import are not supported yet.
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).
