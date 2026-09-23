@@ -1,13 +1,21 @@
 # Herdinator
 
-Herdinator creates and manages [Herdr](https://herdr.dev/) workspaces from
-tmuxinator-style YAML. A tmuxinator project maps to a Herdr workspace, windows
-map to tabs, and panes remain panes.
+Herdinator is a tmuxinator-compatible project manager for named
+[Herdr](https://herdr.dev/) workspaces. A tmuxinator project maps to a Herdr
+workspace, windows map to tabs, and panes remain panes.
 
 ## Status
 
 This is an early prototype targeting Herdr 0.9.1. It supports the strict core
 of tmuxinator configuration rather than silently ignoring unsupported fields.
+
+## Project Management
+
+Herdinator is for recurring projects, not one-off layouts. It stores named
+project configurations, discovers local and global project files using
+tmuxinator conventions, and starts an existing matching workspace instead of
+creating a duplicate. Use `new`, `open`, `edit`, `copy`, `delete`, and `list`
+to manage the project configuration lifecycle.
 
 ## Install
 
