@@ -5,6 +5,8 @@ edition = "2021"
 description = "A tmuxinator-style project manager for Herdr"
 license = "Apache-2.0"
 repository = "https://github.com/mhernandezve/herdinator"
+keywords = ["herdr", "tmuxinator", "workspace", "terminal", "cli"]
+categories = ["command-line-utilities", "config"]
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
