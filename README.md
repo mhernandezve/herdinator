@@ -17,6 +17,12 @@ Requirements:
 - Herdr 0.9.1 or newer
 
 ```sh
+cargo install herdinator
+```
+
+To install the local checkout instead:
+
+```sh
 cargo install --path .
 ```
 
