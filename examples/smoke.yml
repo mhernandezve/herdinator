@@ -1,0 +1,11 @@
+name: herdinator-smoke-test
+root: .
+attach: false
+
+windows:
+  - first:
+      layout: even-horizontal
+      panes:
+        - left:
+        - right:
+  - second:
