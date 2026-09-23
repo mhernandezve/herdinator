@@ -2,7 +2,7 @@
 name = "herdinator"
 version = "0.1.0"
 edition = "2021"
-description = "A tmuxinator-style project manager for Herdr"
+description = "A tmuxinator-compatible project manager for named Herdr workspaces"
 license = "Apache-2.0"
 repository = "https://github.com/mhernandezve/herdinator"
 keywords = ["herdr", "tmuxinator", "workspace", "terminal", "cli"]
