@@ -114,6 +114,11 @@ format.
 Hooks, ERB, custom tmux layout strings, sockets, synchronization, `append`, and
 session import are not supported yet.
 
+## Inspiration
+
+Herdinator is inspired by [tmuxinator](https://github.com/tmuxinator/tmuxinator)
+and [tmuxrs](https://github.com/beijaflor/tmuxrs).
+
 ## License
 
 Licensed under the [Apache License, Version 2.0](LICENSE).
