@@ -41,6 +41,15 @@ Requirements:
 cargo install herdinator
 ```
 
+Create the global configuration directory and user-facing samples:
+
+```sh
+herdinator init
+```
+
+This creates `tmuxinator.yml` and `native.yml` in the global configuration
+directory without overwriting existing files.
+
 To install the local checkout instead:
 
 ```sh

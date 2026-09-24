@@ -44,6 +44,16 @@ fn run(cli: Cli) -> Result<()> {
             create_config(&path, &project)?;
             open_editor(&path)?;
         }
+        Command::Init => {
+            let created = store.initialize_samples()?;
+            if created.is_empty() {
+                println!("Samples already exist in {}", store.global_dir().display());
+            } else {
+                for path in created {
+                    println!("Created {}", path.display());
+                }
+            }
+        }
         Command::Open { project } => {
             let path = store
                 .existing_named(&project)
