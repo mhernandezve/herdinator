@@ -41,14 +41,15 @@ Requirements:
 cargo install herdinator
 ```
 
-Create the global configuration directory and user-facing samples:
+Herdinator creates its global configuration directory and `sample.yml`
+automatically on its first command. To initialize them explicitly:
 
 ```sh
 herdinator init
 ```
 
-This creates `tmuxinator.yml` and `native.yml` in the global configuration
-directory without overwriting existing files.
+`init` is idempotent and never overwrites existing files. Start the sample with
+`herdinator start sample`.
 
 To install the local checkout instead:
 
@@ -106,7 +107,7 @@ Supported project fields are `name`, `root`, `pre_window`, `startup_window`,
 `panes`, and `focused_pane`. Unknown and unsupported fields are errors.
 
 Herdinator also accepts a native `tabs` format for exact `right` and `down`
-split trees; see `examples/native.yml`. New projects always use the tmuxinator
+split trees; see `examples/sample.yml`. New projects always use the tmuxinator
 format.
 
 ## Intentional MVP Limits
