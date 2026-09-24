@@ -8,7 +8,7 @@ workspace, windows map to tabs, and panes remain panes.
 
 ## Status
 
-This is an early prototype targeting Herdr 0.9.1. It supports the strict core
+This is an early-stage project targeting Herdr 0.9.1. It supports the strict core
 of tmuxinator configuration rather than silently ignoring unsupported fields.
 
 ## Project Management
