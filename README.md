@@ -117,6 +117,11 @@ format.
 Hooks, ERB, custom tmux layout strings, sockets, synchronization, `append`, and
 session import are not supported yet.
 
+## Contributing
+
+Issues, bug reports, and pull requests are welcome. Contributions are reviewed
+on a best-effort basis; see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Inspiration
 
 Herdinator is inspired by [tmuxinator](https://github.com/tmuxinator/tmuxinator)
