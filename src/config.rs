@@ -11,10 +11,7 @@ use crate::layout::{preset, Direction, LayoutNode, PanePlan};
 pub const LOCAL_CONFIG: &str = ".herdinator.yml";
 pub const TMUXINATOR_LOCAL_CONFIG: &str = ".tmuxinator.yml";
 
-const SAMPLES: [(&str, &str); 2] = [
-    ("tmuxinator.yml", include_str!("../examples/tmuxinator.yml")),
-    ("native.yml", include_str!("../examples/native.yml")),
-];
+const SAMPLES: [(&str, &str); 1] = [("sample.yml", include_str!("../examples/sample.yml"))];
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(untagged)]
@@ -702,16 +699,16 @@ mod tests {
         };
 
         let created = store.initialize_samples().unwrap();
-        assert_eq!(created.len(), 2);
+        assert_eq!(created.len(), 1);
         assert_eq!(
-            fs::read_to_string(store.global_dir.join("native.yml")).unwrap(),
-            SAMPLES[1].1
+            fs::read_to_string(store.global_dir.join("sample.yml")).unwrap(),
+            SAMPLES[0].1
         );
 
-        fs::write(store.global_dir.join("native.yml"), "custom").unwrap();
+        fs::write(store.global_dir.join("sample.yml"), "custom").unwrap();
         assert!(store.initialize_samples().unwrap().is_empty());
         assert_eq!(
-            fs::read_to_string(store.global_dir.join("native.yml")).unwrap(),
+            fs::read_to_string(store.global_dir.join("sample.yml")).unwrap(),
             "custom"
         );
     }

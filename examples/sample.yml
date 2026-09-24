@@ -1,0 +1,21 @@
+name: sample
+root: ./
+
+tabs:
+  - name: editor
+    layout:
+      split: right
+      ratio: 0.75
+      panes:
+        - name: editor
+          command: nvim
+        - name: prompt
+  - name: agents
+    layout:
+      split: down
+      ratio: 0.5
+      panes:
+        - name: opencode
+          command: opencode
+        - name: claude
+          command: claude

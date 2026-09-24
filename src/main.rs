@@ -19,6 +19,9 @@ fn main() {
 
 fn run(cli: Cli) -> Result<()> {
     let store = ConfigStore::discover()?;
+    if !matches!(&cli.command, Command::Init) {
+        store.initialize_samples()?;
+    }
     match cli.command {
         Command::Start {
             project,
