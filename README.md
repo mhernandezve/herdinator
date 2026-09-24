@@ -17,6 +17,19 @@ tmuxinator conventions, and starts an existing matching workspace instead of
 creating a duplicate. Use `new`, `open`, `edit`, `copy`, `delete`, and `list`
 to manage the project configuration lifecycle.
 
+## Next Steps
+
+Herdinator will extend named project management to saved Herdr SSH machines. A
+project will be able to start locally or on a selected remote machine while
+keeping the same tmuxinator-compatible workflow.
+
+```sh
+herdinator start ali-test
+herdinator start ali-test --machine Workbox --no-attach
+```
+
+Remote project support is planned and not available yet.
+
 ## Install
 
 Requirements:
