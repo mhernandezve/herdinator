@@ -38,6 +38,8 @@ pub enum Command {
         #[arg(long)]
         local: bool,
     },
+    /// Create global configuration samples
+    Init,
     /// Create if needed, then open a project configuration
     #[command(alias = "o")]
     Open { project: String },

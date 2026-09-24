@@ -11,6 +11,11 @@ use crate::layout::{preset, Direction, LayoutNode, PanePlan};
 pub const LOCAL_CONFIG: &str = ".herdinator.yml";
 pub const TMUXINATOR_LOCAL_CONFIG: &str = ".tmuxinator.yml";
 
+const SAMPLES: [(&str, &str); 2] = [
+    ("tmuxinator.yml", include_str!("../examples/tmuxinator.yml")),
+    ("native.yml", include_str!("../examples/native.yml")),
+];
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(untagged)]
 pub enum Selector {
@@ -603,6 +608,19 @@ impl ConfigStore {
         Ok(projects.into_iter().collect())
     }
 
+    pub fn initialize_samples(&self) -> Result<Vec<PathBuf>> {
+        fs::create_dir_all(&self.global_dir)?;
+        let mut created = Vec::new();
+        for (name, contents) in SAMPLES {
+            let path = self.global_dir.join(name);
+            if !path.exists() {
+                fs::write(&path, contents)?;
+                created.push(path);
+            }
+        }
+        Ok(created)
+    }
+
     fn named_path(&self, project: &str) -> Option<PathBuf> {
         ["yml", "yaml"]
             .into_iter()
@@ -674,5 +692,27 @@ mod tests {
         );
         let plan = ProjectPlan::from_file(&write_config(temp.path(), &yaml), None).unwrap();
         assert_eq!(plan.tabs[0].layout.pane_count(), 2);
+    }
+
+    #[test]
+    fn initializes_samples_without_overwriting_them() {
+        let temp = TempDir::new().unwrap();
+        let store = ConfigStore {
+            global_dir: temp.path().join("herdinator"),
+        };
+
+        let created = store.initialize_samples().unwrap();
+        assert_eq!(created.len(), 2);
+        assert_eq!(
+            fs::read_to_string(store.global_dir.join("native.yml")).unwrap(),
+            SAMPLES[1].1
+        );
+
+        fs::write(store.global_dir.join("native.yml"), "custom").unwrap();
+        assert!(store.initialize_samples().unwrap().is_empty());
+        assert_eq!(
+            fs::read_to_string(store.global_dir.join("native.yml")).unwrap(),
+            "custom"
+        );
     }
 }
