@@ -4,6 +4,8 @@ Herdinator is a tmuxinator-compatible project manager for named
 [Herdr](https://herdr.dev/) workspaces. A tmuxinator project maps to a Herdr
 workspace, windows map to tabs, and panes remain panes.
 
+![Herdinator demo](assets/demo.gif)
+
 ## Status
 
 This is an early prototype targeting Herdr 0.9.1. It supports the strict core
