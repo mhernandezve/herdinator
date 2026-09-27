@@ -5,7 +5,8 @@
 - Run `cargo fmt --check`, `cargo clippy -- -D warnings`, and `cargo test` before handing off Rust changes.
 - Build or install locally with `cargo build --release` or `cargo install --path .`.
 - Test behavior that talks to Herdr with `herdinator start -p examples/smoke.yml --no-attach`; this requires Herdr 0.9.1+ available as `herdr` (or set `HERDINATOR_HERDR_BIN`). Use `herdinator doctor` to inspect that dependency.
-- Releases are pushed as `vX.Y.Z` tags matching the version in `Cargo.toml`. The release workflow publishes to crates.io with the repository secret `CARGO_REGISTRY_TOKEN`.
+- Releases are automated with `release-please` (opens a version-bump PR on push to `main`). Merging the PR creates the `vX.Y.Z` tag and triggers the `release.yml` workflow.
+- The release workflow builds cross-platform binaries with `cargo-dist` (Linux x86_64/aarch64, macOS x86_64/aarch64), uploads them to the GitHub Release, and publishes to crates.io using the repository secret `CARGO_REGISTRY_TOKEN`.
 
 ## Architecture
 
