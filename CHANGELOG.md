@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/mhernandezve/herdinator/compare/v0.2.0...v0.2.1) (2026-09-27)
+
+
+### Bug Fixes
+
+* **ci:** handle existing releases created by release-please ([#25](https://github.com/mhernandezve/herdinator/issues/25)) ([8d4b281](https://github.com/mhernandezve/herdinator/commit/8d4b281cad81effb7aa3e0412dc1eed033562f58))
+
 ## [0.2.0](https://github.com/mhernandezve/herdinator/compare/v0.1.3...v0.2.0) (2026-09-27)
 
 
