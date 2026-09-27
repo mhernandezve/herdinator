@@ -34,6 +34,21 @@ Remote project support is planned and not available yet.
 
 ## Install
 
+### Homebrew (macOS / Linux)
+
+```sh
+brew install mhernandezve/tap/herdinator
+```
+
+### Shell installer
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/mhernandezve/herdinator/releases/latest/download/herdinator-installer.sh | sh
+```
+
+### From crates.io
+
 Requirements:
 
 - Rust stable

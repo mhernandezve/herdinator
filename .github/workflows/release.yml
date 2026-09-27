@@ -297,10 +297,47 @@ jobs:
 
           gh release create "${{ needs.plan.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
 
+  publish-homebrew-formula:
+    needs:
+      - plan
+      - host
+    if: ${{ always() && needs.host.result == 'success' && needs.plan.outputs.publishing == 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      PLAN: ${{ needs.plan.outputs.val }}
+    steps:
+      - name: Fetch homebrew formula artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: artifacts-*
+          path: target/distrib/
+          merge-multiple: true
+      - name: Extract formula name
+        id: formula
+        run: |
+          formula="$(echo "$PLAN" | jq -r '.releases[0].app_name')"
+          echo "name=$formula" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: mhernandezve/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+      - name: Commit and push formula
+        run: |
+          cp target/distrib/*.rb homebrew-tap/Formula/ 2>/dev/null || cp target/distrib/* homebrew-tap/Formula/
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "${{ steps.formula.outputs.name }} ${{ needs.plan.outputs.tag }}" || echo "No changes"
+          git push
+
   publish-crates-io:
     needs:
       - plan
       - host
+      - publish-homebrew-formula
     if: ${{ always() && needs.host.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
