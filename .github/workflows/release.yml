@@ -60,7 +60,12 @@ jobs:
         if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
         run: |
           version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
-          test "$GITHUB_REF_NAME" = "v$version"
+          name="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].name')"
+          # Accept both vX.Y.Z and name-vX.Y.Z formats
+          if [ "$GITHUB_REF_NAME" != "v$version" ] && [ "$GITHUB_REF_NAME" != "$name-v$version" ]; then
+            echo "Expected tag v$version or $name-v$version, got $GITHUB_REF_NAME"
+            exit 1
+          fi
 
   # Run 'dist plan' (or host) to determine what tasks we need to do
   plan:
