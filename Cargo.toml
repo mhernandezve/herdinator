@@ -20,3 +20,35 @@ thiserror = "2"
 
 [dev-dependencies]
 tempfile = "3"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
+
+[profile.dist]
+inherits = "release"
+opt-level = 3
+lto = true
+strip = true
+
+[workspace.metadata.dist]
+cargo-dist-version = "0.28.0"
+ci = ["github"]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+]
+tar-unix-archive = "tar.gz"
+pr-run-mode = "plan"
+install-path = "~/.local/bin/"
+github-attestations = true
+allow-dirty = ["ci"]
+
+[workspace.metadata.dist.github-custom-runners]
+x86_64-unknown-linux-gnu = "ubuntu-22.04"
+aarch64-unknown-linux-gnu = "ubuntu-22.04"
+x86_64-apple-darwin = "macos-14"
+aarch64-apple-darwin = "macos-14"
