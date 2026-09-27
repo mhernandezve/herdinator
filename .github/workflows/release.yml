@@ -325,6 +325,7 @@ jobs:
           path: homebrew-tap
       - name: Commit and push formula
         run: |
+          mkdir -p homebrew-tap/Formula
           cp target/distrib/*.rb homebrew-tap/Formula/ 2>/dev/null || cp target/distrib/* homebrew-tap/Formula/
           cd homebrew-tap
           git config user.name "github-actions[bot]"
