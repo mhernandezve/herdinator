@@ -72,18 +72,35 @@ struct RawNativeTab {
     layout: Value,
 }
 
+/// Command line overrides applied on top of a project file.
+///
+/// `default_root` is provided by the caller instead of read from the
+/// environment. That keeps parsing free of process-global state and makes the
+/// fallback testable without changing the working directory.
+#[derive(Clone, Debug, Default)]
+pub struct LoadOptions {
+    pub name: Option<String>,
+    pub root: Option<PathBuf>,
+    pub default_root: Option<PathBuf>,
+}
+
 impl ProjectPlan {
-    pub fn from_file(path: &Path, name_override: Option<&str>) -> Result<Self> {
+    pub fn from_file(path: &Path, options: &LoadOptions) -> Result<Self> {
         let source = fs::read_to_string(path)?;
         let raw: RawProject = serde_yaml::from_str(&source).map_err(|source| Error::Yaml {
             path: path.to_path_buf(),
             source,
         })?;
-        Self::from_raw(raw, name_override)
+        Self::from_raw(raw, options)
     }
 
-    fn from_raw(raw: RawProject, name_override: Option<&str>) -> Result<Self> {
-        let name = name_override.unwrap_or(&raw.name).trim().to_string();
+    fn from_raw(raw: RawProject, options: &LoadOptions) -> Result<Self> {
+        let name = options
+            .name
+            .as_deref()
+            .unwrap_or(&raw.name)
+            .trim()
+            .to_string();
         if name.is_empty() {
             return Err(Error::InvalidConfig("project name cannot be empty".into()));
         }
@@ -102,7 +119,17 @@ impl ProjectPlan {
             _ => {}
         }
 
-        let root = expand_directory(raw.root.as_deref().unwrap_or("~"), "project root")?;
+        let root = if let Some(root) = options.root.as_deref() {
+            expand_directory(&root.to_string_lossy(), "project root")?
+        } else if let Some(root) = raw.root.as_deref() {
+            expand_directory(root, "project root")?
+        } else if let Some(default_root) = options.default_root.as_deref() {
+            default_root.to_path_buf()
+        } else {
+            return Err(Error::InvalidConfig(
+                "project root is required when no working directory is supplied".into(),
+            ));
+        };
         let pre_window = raw
             .pre_window
             .as_ref()
@@ -688,7 +715,9 @@ mod tests {
             "name: app\nroot: {}\npre_window: prep\nstartup_window: dev\nwindows:\n  - dev:\n      layout: main-vertical\n      panes:\n        - editor: vim\n        - server: [cd api, cargo run]\n",
             temp.path().display()
         );
-        let plan = ProjectPlan::from_file(&write_config(temp.path(), &yaml), None).unwrap();
+        let plan =
+            ProjectPlan::from_file(&write_config(temp.path(), &yaml), &LoadOptions::default())
+                .unwrap();
         assert_eq!(plan.name, "app");
         assert_eq!(plan.tabs.len(), 1);
         let panes = collect_panes(&plan.tabs[0].layout);
@@ -702,7 +731,10 @@ mod tests {
             "name: app\nroot: {}\non_project_start: echo nope\nwindows:\n  - shell:\n",
             temp.path().display()
         );
-        assert!(ProjectPlan::from_file(&write_config(temp.path(), &yaml), None).is_err());
+        assert!(
+            ProjectPlan::from_file(&write_config(temp.path(), &yaml), &LoadOptions::default())
+                .is_err()
+        );
     }
 
     #[test]
@@ -712,8 +744,55 @@ mod tests {
             "name: app\nroot: {}\ntabs:\n  - name: dev\n    layout:\n      split: right\n      ratio: 0.7\n      panes:\n        - name: editor\n          command: vim\n        - name: server\n          commands: [cd api, cargo run]\n",
             temp.path().display()
         );
-        let plan = ProjectPlan::from_file(&write_config(temp.path(), &yaml), None).unwrap();
+        let plan =
+            ProjectPlan::from_file(&write_config(temp.path(), &yaml), &LoadOptions::default())
+                .unwrap();
         assert_eq!(plan.tabs[0].layout.pane_count(), 2);
+    }
+
+    #[test]
+    fn root_override_takes_precedence_over_yaml() {
+        let temp = TempDir::new().unwrap();
+        let other = TempDir::new().unwrap();
+        let yaml = format!(
+            "name: app\nroot: {}\nwindows:\n  - shell:\n",
+            temp.path().display()
+        );
+        let plan = ProjectPlan::from_file(
+            &write_config(temp.path(), &yaml),
+            &LoadOptions {
+                root: Some(other.path().to_path_buf()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(plan.root, other.path());
+    }
+
+    #[test]
+    fn falls_back_to_the_supplied_default_root() {
+        let temp = TempDir::new().unwrap();
+        let fallback = TempDir::new().unwrap();
+        let yaml = "name: app\nwindows:\n  - shell:\n";
+        let options = LoadOptions {
+            default_root: Some(fallback.path().to_path_buf()),
+            ..Default::default()
+        };
+        let plan = ProjectPlan::from_file(&write_config(temp.path(), yaml), &options).unwrap();
+        assert_eq!(plan.root, fallback.path());
+    }
+
+    #[test]
+    fn missing_root_without_a_default_is_rejected() {
+        let temp = TempDir::new().unwrap();
+        let yaml = "name: app\nwindows:\n  - shell:\n";
+        let error =
+            ProjectPlan::from_file(&write_config(temp.path(), yaml), &LoadOptions::default())
+                .unwrap_err();
+        assert!(
+            error.to_string().contains("project root is required"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -745,8 +824,11 @@ mod tests {
             "name: app\nroot: {}\nwindows:\n  - \"0\": echo hi\n",
             temp.path().display()
         );
-        let error =
-            ProjectPlan::from_file(&write_config(temp.path(), &numeric_window), None).unwrap_err();
+        let error = ProjectPlan::from_file(
+            &write_config(temp.path(), &numeric_window),
+            &LoadOptions::default(),
+        )
+        .unwrap_err();
         assert!(
             error
                 .to_string()
@@ -758,8 +840,11 @@ mod tests {
             "name: app\nroot: {}\nwindows:\n  - dev:\n      panes:\n        - \"0\": vim\n",
             temp.path().display()
         );
-        let error =
-            ProjectPlan::from_file(&write_config(temp.path(), &numeric_pane), None).unwrap_err();
+        let error = ProjectPlan::from_file(
+            &write_config(temp.path(), &numeric_pane),
+            &LoadOptions::default(),
+        )
+        .unwrap_err();
         assert!(
             error
                 .to_string()
@@ -775,7 +860,9 @@ mod tests {
             "name: app\nroot: {}\ntabs:\n  - name: \"0\"\n    layout:\n      split: right\n      panes:\n        - name: a\n        - name: b\n",
             temp.path().display()
         );
-        let error = ProjectPlan::from_file(&write_config(temp.path(), &yaml), None).unwrap_err();
+        let error =
+            ProjectPlan::from_file(&write_config(temp.path(), &yaml), &LoadOptions::default())
+                .unwrap_err();
         assert!(
             error
                 .to_string()

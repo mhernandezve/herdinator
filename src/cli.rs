@@ -30,6 +30,9 @@ pub enum Command {
         /// Override the Herdr workspace name
         #[arg(short = 'n', long = "name")]
         name: Option<String>,
+        /// Override the project root directory
+        #[arg(short = 'r', long = "root")]
+        root: Option<PathBuf>,
         /// Prepare the workspace without opening Herdr
         #[arg(long)]
         no_attach: bool,
@@ -71,6 +74,9 @@ pub enum Command {
         project_config: Option<PathBuf>,
         #[arg(short = 'n', long = "name")]
         name: Option<String>,
+        /// Override the project root directory
+        #[arg(short = 'r', long = "root")]
+        root: Option<PathBuf>,
     },
     /// Check the local Herdinator and Herdr environment
     Doctor,
