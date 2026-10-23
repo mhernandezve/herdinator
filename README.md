@@ -19,6 +19,13 @@ tmuxinator conventions, and starts an existing matching workspace instead of
 creating a duplicate. Use `new`, `open`, `edit`, `copy`, `delete`, and `list`
 to manage the project configuration lifecycle.
 
+A workspace matches a project when both its name and its first tab root match
+the configuration. `start` only focuses a matching workspace: configuration
+edits are **not** applied to a workspace that is already running. To rebuild a
+project after editing its configuration, use `herdinator start <project>
+--restart` (or `stop` followed by `start`). Restarting closes the workspace,
+so panes and the processes running in them are lost.
+
 ## Next Steps
 
 Herdinator will extend named project management to saved Herdr SSH machines. A
@@ -80,6 +87,7 @@ cargo install --path .
 herdinator new shop
 herdinator start shop
 herdinator start shop --no-attach
+herdinator start shop --restart
 herdinator start -p ./project.yml
 herdinator list
 herdinator debug shop

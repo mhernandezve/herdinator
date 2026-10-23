@@ -29,17 +29,27 @@ fn run(cli: Cli) -> Result<()> {
             project_config,
             name,
             no_attach,
+            restart,
         } => {
             let path = store.resolve(project.as_deref(), project_config.as_deref())?;
             let plan = ProjectPlan::from_file(&path, name.as_deref())?;
             let attach = plan.attach && !no_attach;
             validate_attach(attach)?;
             let mut manager = ProjectManager::new(HerdrCli::new().verbose(verbose));
-            let outcome = manager.start(&plan, attach)?;
+            let outcome = if restart {
+                manager.restart(&plan, attach)?
+            } else {
+                manager.start(&plan, attach)?
+            };
             if !attach {
-                match outcome {
-                    StartOutcome::Created => println!("Created workspace '{}'", plan.name),
-                    StartOutcome::Existing => println!("Workspace '{}' already exists", plan.name),
+                match (restart, outcome) {
+                    (true, _) => println!("Restarted workspace '{}'", plan.name),
+                    (false, StartOutcome::Created) => {
+                        println!("Created workspace '{}'", plan.name)
+                    }
+                    (false, StartOutcome::Existing) => {
+                        println!("Workspace '{}' already exists", plan.name)
+                    }
                 }
             }
         }

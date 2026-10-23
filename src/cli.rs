@@ -33,6 +33,9 @@ pub enum Command {
         /// Prepare the workspace without opening Herdr
         #[arg(long)]
         no_attach: bool,
+        /// Close and rebuild an existing workspace so config edits apply
+        #[arg(long)]
+        restart: bool,
     },
     /// Create a project configuration and open it in $VISUAL or $EDITOR
     #[command(alias = "n")]

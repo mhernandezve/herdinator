@@ -21,14 +21,27 @@ impl<A: HerdrApi> ProjectManager<A> {
     }
 
     pub fn start(&mut self, plan: &ProjectPlan, attach: bool) -> Result<StartOutcome> {
+        self.launch(plan, attach, false)
+    }
+
+    /// Closes a matching workspace and rebuilds it, so configuration edits take
+    /// effect. Panes and their processes are lost, exactly like `stop` + `start`.
+    pub fn restart(&mut self, plan: &ProjectPlan, attach: bool) -> Result<StartOutcome> {
+        self.launch(plan, attach, true)
+    }
+
+    fn launch(&mut self, plan: &ProjectPlan, attach: bool, restart: bool) -> Result<StartOutcome> {
         self.api.ensure_server()?;
         let workspaces = self.api.list_workspaces()?;
         if let Some(workspace) = find_existing_for_start(&workspaces, plan)? {
-            self.api.focus_workspace(&workspace.id)?;
-            if attach {
-                self.api.attach()?;
+            if !restart {
+                self.api.focus_workspace(&workspace.id)?;
+                if attach {
+                    self.api.attach()?;
+                }
+                return Ok(StartOutcome::Existing);
             }
-            return Ok(StartOutcome::Existing);
+            self.api.close_workspace(&workspace.id)?;
         }
 
         let created = self.api.create_workspace(&plan.name, &plan.tabs[0].root)?;
@@ -453,6 +466,46 @@ mod tests {
             .events
             .iter()
             .any(|event| event.starts_with("create:")));
+    }
+
+    #[test]
+    fn restart_closes_and_recreates_the_matching_workspace() {
+        let root = std::env::temp_dir();
+        let api = FakeApi {
+            workspaces: vec![Workspace {
+                id: "existing".into(),
+                label: "app".into(),
+                cwd: Some(root.clone()),
+            }],
+            ..Default::default()
+        };
+        let mut manager = ProjectManager::new(api);
+        assert_eq!(
+            manager.restart(&plan(root), false).unwrap(),
+            StartOutcome::Created
+        );
+        let events = &manager.api.events;
+        let close = events.iter().position(|event| event == "close:existing");
+        let create = events.iter().position(|event| event == "create:app");
+        assert!(close.is_some() && create.is_some(), "{events:?}");
+        assert!(close < create, "{events:?}");
+        assert!(
+            !events
+                .iter()
+                .any(|event| event == "focus-workspace:existing"),
+            "{events:?}"
+        );
+    }
+
+    #[test]
+    fn restart_without_an_existing_workspace_creates_one() {
+        let root = std::env::temp_dir();
+        let mut manager = ProjectManager::new(FakeApi::default());
+        assert_eq!(
+            manager.restart(&plan(root), false).unwrap(),
+            StartOutcome::Created
+        );
+        assert!(manager.api.events.contains(&"create:app".to_string()));
     }
 
     #[test]
