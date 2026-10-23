@@ -39,7 +39,14 @@ impl<A: HerdrApi> ProjectManager<A> {
             &created.pane_id,
         );
         if let Err(error) = result {
-            let _ = self.api.close_workspace(&created.workspace_id);
+            if let Err(rollback) = self.api.close_workspace(&created.workspace_id) {
+                // Best-effort cleanup: keep the original failure as the error,
+                // but never fail silently and leave a half-built workspace behind.
+                eprintln!(
+                    "warning: could not close workspace '{}' after failure: {rollback}",
+                    created.workspace_id
+                );
+            }
             return Err(error);
         }
 
@@ -271,6 +278,7 @@ mod tests {
         events: Vec<String>,
         panes: VecDeque<String>,
         fail_run: bool,
+        fail_close: bool,
     }
 
     impl HerdrApi for FakeApi {
@@ -295,7 +303,11 @@ mod tests {
         }
         fn close_workspace(&mut self, id: &str) -> Result<()> {
             self.events.push(format!("close:{id}"));
-            Ok(())
+            if self.fail_close {
+                Err(Error::Herdr("close failed".into()))
+            } else {
+                Ok(())
+            }
         }
         fn rename_tab(&mut self, _: &str, label: &str) -> Result<()> {
             self.events.push(format!("tab:{label}"));
@@ -382,6 +394,21 @@ mod tests {
         };
         let mut manager = ProjectManager::new(api);
         assert!(manager.start(&plan(std::env::temp_dir()), false).is_err());
+        assert!(manager.api.events.contains(&"close:w1".to_string()));
+    }
+
+    #[test]
+    fn rollback_failure_keeps_the_original_error() {
+        let api = FakeApi {
+            fail_run: true,
+            fail_close: true,
+            ..Default::default()
+        };
+        let mut manager = ProjectManager::new(api);
+        let error = manager
+            .start(&plan(std::env::temp_dir()), false)
+            .unwrap_err();
+        assert!(matches!(&error, Error::Herdr(message) if message == "run failed"));
         assert!(manager.api.events.contains(&"close:w1".to_string()));
     }
 
