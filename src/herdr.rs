@@ -63,10 +63,33 @@ pub trait HerdrApi {
 /// return immediately, so anything slower means the server is unhealthy.
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Where Herdr API commands are executed.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum HerdrTarget {
+    /// The Herdr server on this machine.
+    #[default]
+    Local,
+    /// A saved Herdr SSH machine, addressed by label or id.
+    Machine(String),
+}
+
+impl HerdrTarget {
+    /// Arguments Herdr needs before the subcommand to reach this target.
+    fn prefix(&self) -> Vec<OsString> {
+        match self {
+            Self::Local => Vec::new(),
+            Self::Machine(machine) => {
+                vec![OsString::from("--machine"), OsString::from(machine)]
+            }
+        }
+    }
+}
+
 pub struct HerdrCli {
     binary: PathBuf,
     verbose: bool,
     timeout: Duration,
+    target: HerdrTarget,
 }
 
 impl Default for HerdrCli {
@@ -83,7 +106,14 @@ impl HerdrCli {
                 .unwrap_or_else(|| PathBuf::from("herdr")),
             verbose: false,
             timeout: COMMAND_TIMEOUT,
+            target: HerdrTarget::Local,
         }
+    }
+
+    /// Run Herdr API commands against `target` instead of the local server.
+    pub fn target(mut self, target: HerdrTarget) -> Self {
+        self.target = target;
+        self
     }
 
     /// Trace every Herdr command on stderr.
@@ -99,7 +129,7 @@ impl HerdrCli {
     }
 
     pub fn server_running(&self) -> bool {
-        self.raw([OsStr::new("status"), OsStr::new("server")])
+        self.api([OsStr::new("status"), OsStr::new("server")])
             .is_ok_and(|output| {
                 output.status.success()
                     && status_is_running(&String::from_utf8_lossy(&output.stdout))
@@ -113,7 +143,7 @@ impl HerdrCli {
     {
         let args = collect_args(args);
         let description = describe(&args);
-        let output = ensure_success(self.raw(&args)?, &description)?;
+        let output = ensure_success(self.api(&args)?, &description)?;
         Ok(serde_json::from_slice(&output.stdout)?)
     }
 
@@ -124,8 +154,19 @@ impl HerdrCli {
     {
         let args = collect_args(args);
         let description = describe(&args);
-        ensure_success(self.raw(&args)?, &description)?;
+        ensure_success(self.api(&args)?, &description)?;
         Ok(())
+    }
+
+    /// Command line executed for `args`, including a target selector when the
+    /// command has to travel to a saved machine.
+    fn command_line(&self, args: Vec<OsString>, targeted: bool) -> Vec<OsString> {
+        if !targeted {
+            return args;
+        }
+        let mut prefixed = self.target.prefix();
+        prefixed.extend(args);
+        prefixed
     }
 
     fn raw<I, S>(&self, args: I) -> Result<Output>
@@ -133,7 +174,24 @@ impl HerdrCli {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        let args = collect_args(args);
+        self.run(args, false)
+    }
+
+    /// Runs an API command, routing it through `--machine` when needed.
+    fn api<I, S>(&self, args: I) -> Result<Output>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        self.run(args, true)
+    }
+
+    fn run<I, S>(&self, args: I, targeted: bool) -> Result<Output>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        let args = self.command_line(collect_args(args), targeted);
         let description = describe(&args);
         if self.verbose {
             eprintln!("herdr {description}");
@@ -229,6 +287,11 @@ impl HerdrApi for HerdrCli {
         self.version()?;
         if self.server_running() {
             return Ok(());
+        }
+        if self.target != HerdrTarget::Local {
+            return Err(Error::Herdr(
+                "the Herdr server on a remote machine must be started manually".into(),
+            ));
         }
 
         Command::new(&self.binary)
@@ -481,7 +544,7 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use super::{status_is_running, HerdrApi, HerdrCli};
+    use super::{status_is_running, HerdrApi, HerdrCli, HerdrTarget};
     use crate::error::Error;
 
     fn shell(timeout: Duration) -> HerdrCli {
@@ -489,6 +552,7 @@ mod tests {
             binary: PathBuf::from("/bin/sh"),
             verbose: false,
             timeout,
+            target: HerdrTarget::Local,
         }
     }
 
@@ -504,6 +568,7 @@ mod tests {
             binary: path,
             verbose: false,
             timeout: Duration::from_secs(5),
+            target: HerdrTarget::Local,
         };
         (dir, cli)
     }
@@ -585,6 +650,53 @@ esac
         let (_dir, mut cli) = script_cli(script);
         let workspaces = cli.list_workspaces().unwrap();
         assert_eq!(workspaces[0].cwd, None);
+    }
+
+    #[test]
+    fn machine_target_prefixes_api_commands() {
+        let script = r#"#!/bin/sh
+case "$*" in
+  "--machine box pane list") printf '%s' '{"result":{"panes":[]}}' ;;
+  *) exit 1 ;;
+esac
+"#;
+        let (_dir, cli) = script_cli(script);
+        let cli = cli.target(HerdrTarget::Machine("box".into()));
+        assert_eq!(
+            cli.json(["pane", "list"]).unwrap()["result"]["panes"],
+            serde_json::json!([])
+        );
+    }
+
+    #[test]
+    fn version_checks_stay_local_for_machine_targets() {
+        let script = r#"#!/bin/sh
+case "$*" in
+  "--version") printf 'herdr 0.9.1\n' ;;
+  *) exit 1 ;;
+esac
+"#;
+        let (_dir, cli) = script_cli(script);
+        let cli = cli.target(HerdrTarget::Machine("box".into()));
+        assert_eq!(cli.version().unwrap(), "herdr 0.9.1");
+    }
+
+    #[test]
+    fn ensure_server_refuses_to_start_a_remote_server() {
+        let script = r#"#!/bin/sh
+case "$*" in
+  "--version") printf 'herdr 0.9.1\n' ;;
+  "--machine box status server") printf 'status: not running\n' ;;
+  *) exit 1 ;;
+esac
+"#;
+        let (_dir, mut cli) = script_cli(script);
+        cli.target = HerdrTarget::Machine("box".into());
+        let error = cli.ensure_server().unwrap_err();
+        assert!(
+            error.to_string().contains("must be started manually"),
+            "{error}"
+        );
     }
 
     #[test]
