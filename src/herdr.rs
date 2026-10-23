@@ -2,11 +2,13 @@ use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 use wait_timeout::ChildExt;
 
 use crate::error::{Error, Result};
@@ -197,18 +199,22 @@ impl HerdrCli {
             eprintln!("herdr {description}");
         }
 
-        let mut child = Command::new(&self.binary)
+        let mut command = Command::new(&self.binary);
+        command
             .args(&args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|error| {
-                Error::Herdr(format!(
-                    "could not execute '{}': {error}",
-                    self.binary.display()
-                ))
-            })?;
+            .stderr(Stdio::piped());
+        // Own process group, so a timeout can kill helpers the command spawned
+        // instead of leaving them holding our pipes open.
+        #[cfg(unix)]
+        command.process_group(0);
+        let mut child = command.spawn().map_err(|error| {
+            Error::Herdr(format!(
+                "could not execute '{}': {error}",
+                self.binary.display()
+            ))
+        })?;
 
         let stdout = child
             .stdout
@@ -492,10 +498,17 @@ fn read_all(mut reader: impl Read) -> Vec<u8> {
 }
 
 fn terminate(
-    child: &mut std::process::Child,
+    child: &mut Child,
     stdout: thread::JoinHandle<Vec<u8>>,
     stderr: thread::JoinHandle<Vec<u8>>,
 ) {
+    // The child runs in its own process group, so signal the whole tree: a
+    // surviving grandchild would keep the pipes open and block the readers,
+    // making the timeout take as long as the orphaned command.
+    #[cfg(unix)]
+    unsafe {
+        libc::kill(-(child.id() as i32), libc::SIGKILL);
+    }
     let _ = child.kill();
     let _ = child.wait();
     let _ = stdout.join();
