@@ -13,7 +13,12 @@ use crate::layout::Direction;
 pub struct Workspace {
     pub id: String,
     pub label: String,
-    pub cwd: PathBuf,
+    /// First pane's working directory, when Herdr can report one.
+    ///
+    /// `None` means the workspace exposed no usable pane information (no
+    /// panes, or a failed `pane list`). Such workspaces are kept visible so
+    /// callers can still match them by name instead of creating duplicates.
+    pub cwd: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -135,6 +140,18 @@ impl HerdrCli {
                 ))
             })
     }
+
+    /// Best-effort lookup of a workspace's first pane cwd.
+    ///
+    /// A workspace without panes, or one whose `pane list` call fails, must not
+    /// take down the whole workspace listing.
+    fn pane_cwd(&self, workspace_id: &str) -> Option<PathBuf> {
+        let json = self
+            .json(["pane", "list", "--workspace", workspace_id])
+            .ok()?;
+        let panes = result(&json).get("panes")?.as_array()?;
+        panes.first()?.get("cwd")?.as_str().map(PathBuf::from)
+    }
 }
 
 impl HerdrApi for HerdrCli {
@@ -185,28 +202,13 @@ impl HerdrApi for HerdrCli {
             })
             .collect::<Result<Vec<_>>>()?;
 
-        summaries
+        Ok(summaries
             .into_iter()
             .map(|(id, label)| {
-                let panes = self.json(["pane", "list", "--workspace", &id])?;
-                let cwd = result(&panes)
-                    .get("panes")
-                    .and_then(Value::as_array)
-                    .and_then(|panes| panes.first())
-                    .and_then(|pane| pane.get("cwd"))
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| {
-                        Error::Herdr(format!(
-                            "workspace '{id}' has no pane cwd in its API response"
-                        ))
-                    })?;
-                Ok(Workspace {
-                    id,
-                    label,
-                    cwd: PathBuf::from(cwd),
-                })
+                let cwd = self.pane_cwd(&id);
+                Workspace { id, label, cwd }
             })
-            .collect()
+            .collect())
     }
 
     fn create_workspace(&mut self, label: &str, cwd: &Path) -> Result<CreatedWorkspace> {

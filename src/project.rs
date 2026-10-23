@@ -23,7 +23,7 @@ impl<A: HerdrApi> ProjectManager<A> {
     pub fn start(&mut self, plan: &ProjectPlan, attach: bool) -> Result<StartOutcome> {
         self.api.ensure_server()?;
         let workspaces = self.api.list_workspaces()?;
-        if let Some(workspace) = find_existing(&workspaces, plan)? {
+        if let Some(workspace) = find_existing_for_start(&workspaces, plan)? {
             self.api.focus_workspace(&workspace.id)?;
             if attach {
                 self.api.attach()?;
@@ -52,7 +52,7 @@ impl<A: HerdrApi> ProjectManager<A> {
     pub fn stop(&mut self, plan: &ProjectPlan) -> Result<()> {
         self.api.ensure_server()?;
         let workspaces = self.api.list_workspaces()?;
-        let workspace = find_existing(&workspaces, plan)?.ok_or_else(|| {
+        let workspace = find_existing_for_stop(&workspaces, plan)?.ok_or_else(|| {
             Error::WorkspaceConflict(format!("workspace '{}' is not running", plan.name))
         })?;
         self.api.close_workspace(&workspace.id)
@@ -126,7 +126,7 @@ struct RuntimePane {
     plan: PanePlan,
 }
 
-fn find_existing<'a>(
+fn find_existing_for_start<'a>(
     workspaces: &'a [Workspace],
     plan: &ProjectPlan,
 ) -> Result<Option<&'a Workspace>> {
@@ -140,10 +140,23 @@ fn find_existing<'a>(
     let matching: Vec<_> = named
         .iter()
         .copied()
-        .filter(|workspace| same_path(&workspace.cwd, &plan.tabs[0].root))
+        .filter(|workspace| {
+            workspace
+                .cwd
+                .as_deref()
+                .is_some_and(|cwd| same_path(cwd, &plan.tabs[0].root))
+        })
         .collect();
     match matching.as_slice() {
         [workspace] if named.len() == 1 => Ok(Some(*workspace)),
+        // A same-named workspace without pane information cannot be verified.
+        // Refuse instead of creating a duplicate that would later be ambiguous.
+        [] if named.iter().any(|workspace| workspace.cwd.is_none()) => {
+            Err(Error::WorkspaceConflict(format!(
+                "workspace '{}' exists but Herdr reported no pane for it; close it with 'herdinator stop {}'",
+                plan.name, plan.name
+            )))
+        }
         [] => Err(Error::WorkspaceConflict(format!(
             "workspace '{}' already exists with a different root",
             plan.name
@@ -152,6 +165,24 @@ fn find_existing<'a>(
             "multiple workspaces match '{}' and {}",
             plan.name,
             plan.tabs[0].root.display()
+        ))),
+    }
+}
+
+fn find_existing_for_stop<'a>(
+    workspaces: &'a [Workspace],
+    plan: &ProjectPlan,
+) -> Result<Option<&'a Workspace>> {
+    let named: Vec<_> = workspaces
+        .iter()
+        .filter(|workspace| workspace.label == plan.name)
+        .collect();
+    match named.as_slice() {
+        [] => Ok(None),
+        [workspace] => Ok(Some(*workspace)),
+        _ => Err(Error::WorkspaceConflict(format!(
+            "multiple workspaces are named '{}'; close one of them manually",
+            plan.name
         ))),
     }
 }
@@ -331,7 +362,7 @@ mod tests {
             workspaces: vec![Workspace {
                 id: "existing".into(),
                 label: "app".into(),
-                cwd: root.clone(),
+                cwd: Some(root.clone()),
             }],
             ..Default::default()
         };
@@ -352,5 +383,81 @@ mod tests {
         let mut manager = ProjectManager::new(api);
         assert!(manager.start(&plan(std::env::temp_dir()), false).is_err());
         assert!(manager.api.events.contains(&"close:w1".to_string()));
+    }
+
+    #[test]
+    fn workspace_without_cwd_does_not_block_unrelated_start() {
+        let root = std::env::temp_dir();
+        let api = FakeApi {
+            workspaces: vec![Workspace {
+                id: "empty".into(),
+                label: "other".into(),
+                cwd: None,
+            }],
+            ..Default::default()
+        };
+        let mut manager = ProjectManager::new(api);
+        assert_eq!(
+            manager.start(&plan(root), false).unwrap(),
+            StartOutcome::Created
+        );
+        assert!(manager.api.events.contains(&"create:app".to_string()));
+    }
+
+    #[test]
+    fn start_refuses_unverifiable_matching_workspace() {
+        let root = std::env::temp_dir();
+        let api = FakeApi {
+            workspaces: vec![Workspace {
+                id: "empty".into(),
+                label: "app".into(),
+                cwd: None,
+            }],
+            ..Default::default()
+        };
+        let mut manager = ProjectManager::new(api);
+        let error = manager.start(&plan(root), false).unwrap_err();
+        let Error::WorkspaceConflict(message) = error else {
+            panic!("expected WorkspaceConflict, got {error:?}");
+        };
+        assert!(message.contains("herdinator stop app"), "{message}");
+        assert!(!manager
+            .api
+            .events
+            .iter()
+            .any(|event| event.starts_with("create:")));
+    }
+
+    #[test]
+    fn stop_closes_workspace_without_cwd() {
+        let root = std::env::temp_dir();
+        let api = FakeApi {
+            workspaces: vec![Workspace {
+                id: "empty".into(),
+                label: "app".into(),
+                cwd: None,
+            }],
+            ..Default::default()
+        };
+        let mut manager = ProjectManager::new(api);
+        manager.stop(&plan(root)).unwrap();
+        assert_eq!(manager.api.events, ["server", "close:empty"]);
+    }
+
+    #[test]
+    fn stop_closes_workspace_even_when_root_differs() {
+        let configured = std::env::temp_dir().join("herdinator-configured");
+        let other = std::env::temp_dir().join("herdinator-other");
+        let api = FakeApi {
+            workspaces: vec![Workspace {
+                id: "w9".into(),
+                label: "app".into(),
+                cwd: Some(other),
+            }],
+            ..Default::default()
+        };
+        let mut manager = ProjectManager::new(api);
+        manager.stop(&plan(configured)).unwrap();
+        assert_eq!(manager.api.events, ["server", "close:w9"]);
     }
 }
