@@ -148,6 +148,12 @@ format.
 Hooks, ERB, custom tmux layout strings, sockets, synchronization, `append`, and
 session import are not supported yet.
 
+Herdr cannot focus an arbitrary pane by id: `herdr pane focus` only moves to a
+neighbouring pane. `focused_pane` and `startup_pane` are applied with
+`herdr pane zoom <pane_id> --off`, which focuses the pane and leaves it
+unzoomed, so the call is idempotent. This will switch to a first-class focus
+command if Herdr adds one.
+
 ## Contributing
 
 Issues, bug reports, and pull requests are welcome. Contributions are reviewed

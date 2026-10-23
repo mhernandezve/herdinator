@@ -434,7 +434,16 @@ impl HerdrApi for HerdrCli {
     }
 
     fn focus_pane(&mut self, pane_id: &str) -> Result<()> {
-        // `zoom --off` targets and focuses a pane without changing the final zoom state.
+        // WORKAROUND: Herdr has no "focus this pane id" command. `pane focus`
+        // only moves focus to a *neighbouring* pane (`--direction left|right|
+        // up|down`), so it cannot target an arbitrary pane.
+        //
+        // `pane zoom <id> --off` is the only command that addresses a pane by id
+        // and focuses it. Zoom is set to off unconditionally, so this is
+        // idempotent: calling it for the already focused pane is a no-op and it
+        // never leaves a pane zoomed.
+        //
+        // Replace this with `herdr pane focus <pane_id>` if Herdr ever adds it.
         self.success(["pane", "zoom", pane_id, "--off"])
     }
 
