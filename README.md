@@ -103,6 +103,12 @@ Add `-v`/`--verbose` to trace every Herdr command on stderr. Non-interactive
 Herdr commands time out after 30 seconds instead of hanging indefinitely;
 `attach` is interactive and never times out.
 
+### Herdr server lifecycle
+
+`start` and `stop` start the Herdr server when it is not running, waiting up to
+five seconds before failing. No other command starts a server: `doctor` only
+reports its state.
+
 ## Configuration
 
 ```yaml
