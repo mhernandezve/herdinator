@@ -19,6 +19,7 @@ fn main() {
 
 fn run(cli: Cli) -> Result<()> {
     let store = ConfigStore::discover()?;
+    let verbose = cli.verbose;
     if !matches!(&cli.command, Command::Init) {
         store.initialize_samples()?;
     }
@@ -33,7 +34,7 @@ fn run(cli: Cli) -> Result<()> {
             let plan = ProjectPlan::from_file(&path, name.as_deref())?;
             let attach = plan.attach && !no_attach;
             validate_attach(attach)?;
-            let mut manager = ProjectManager::new(HerdrCli::new());
+            let mut manager = ProjectManager::new(HerdrCli::new().verbose(verbose));
             let outcome = manager.start(&plan, attach)?;
             if !attach {
                 match outcome {
@@ -82,7 +83,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Stop { project } => {
             let path = store.resolve(Some(&project), None)?;
             let plan = ProjectPlan::from_file(&path, None)?;
-            ProjectManager::new(HerdrCli::new()).stop(&plan)?;
+            ProjectManager::new(HerdrCli::new().verbose(verbose)).stop(&plan)?;
             println!("Stopped workspace '{}'", plan.name);
         }
         Command::Copy { source, target } => {
@@ -107,7 +108,7 @@ fn run(cli: Cli) -> Result<()> {
                 .map_err(|error| Error::InvalidConfig(error.to_string()))?;
             print!("{output}");
         }
-        Command::Doctor => doctor(&store)?,
+        Command::Doctor => doctor(&store, verbose)?,
     }
     Ok(())
 }
@@ -193,7 +194,7 @@ fn open_editor(path: &Path) -> Result<()> {
     }
 }
 
-fn doctor(store: &ConfigStore) -> Result<()> {
+fn doctor(store: &ConfigStore, verbose: bool) -> Result<()> {
     println!("Config directory: {}", store.global_dir().display());
     println!(
         "Editor: {}",
@@ -201,7 +202,7 @@ fn doctor(store: &ConfigStore) -> Result<()> {
             .or_else(|_| std::env::var("EDITOR"))
             .unwrap_or_else(|_| "not configured".into())
     );
-    let mut herdr = HerdrCli::new();
+    let mut herdr = HerdrCli::new().verbose(verbose);
     println!("Herdr: {}", herdr.version()?);
     let server_running = herdr.server_running();
     println!(

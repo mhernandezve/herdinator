@@ -9,6 +9,10 @@ use clap::{Parser, Subcommand};
     about = "Create and manage Herdr workspaces from tmuxinator-style YAML"
 )]
 pub struct Cli {
+    /// Trace every Herdr command on stderr
+    #[arg(short = 'v', long, global = true)]
+    pub verbose: bool,
+
     #[command(subcommand)]
     pub command: Command,
 }

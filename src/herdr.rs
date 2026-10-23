@@ -1,10 +1,12 @@
 use std::ffi::{OsStr, OsString};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
+use wait_timeout::ChildExt;
 
 use crate::error::{Error, Result};
 use crate::layout::Direction;
@@ -56,8 +58,14 @@ pub trait HerdrApi {
     fn attach(&mut self) -> Result<()>;
 }
 
+/// Upper bound for non-interactive Herdr commands. `pane run` is expected to
+/// return immediately, so anything slower means the server is unhealthy.
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
+
 pub struct HerdrCli {
     binary: PathBuf,
+    verbose: bool,
+    timeout: Duration,
 }
 
 impl Default for HerdrCli {
@@ -72,7 +80,15 @@ impl HerdrCli {
             binary: std::env::var_os("HERDINATOR_HERDR_BIN")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| PathBuf::from("herdr")),
+            verbose: false,
+            timeout: COMMAND_TIMEOUT,
         }
+    }
+
+    /// Trace every Herdr command on stderr.
+    pub fn verbose(mut self, enabled: bool) -> Self {
+        self.verbose = enabled;
+        self
     }
 
     pub fn version(&self) -> Result<String> {
@@ -94,15 +110,8 @@ impl HerdrCli {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        let args: Vec<OsString> = args
-            .into_iter()
-            .map(|arg| arg.as_ref().to_os_string())
-            .collect();
-        let description = args
-            .iter()
-            .map(|arg| arg.to_string_lossy())
-            .collect::<Vec<_>>()
-            .join(" ");
+        let args = collect_args(args);
+        let description = describe(&args);
         let output = ensure_success(self.raw(&args)?, &description)?;
         Ok(serde_json::from_slice(&output.stdout)?)
     }
@@ -112,15 +121,8 @@ impl HerdrCli {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        let args: Vec<OsString> = args
-            .into_iter()
-            .map(|arg| arg.as_ref().to_os_string())
-            .collect();
-        let description = args
-            .iter()
-            .map(|arg| arg.to_string_lossy())
-            .collect::<Vec<_>>()
-            .join(" ");
+        let args = collect_args(args);
+        let description = describe(&args);
         ensure_success(self.raw(&args)?, &description)?;
         Ok(())
     }
@@ -130,15 +132,60 @@ impl HerdrCli {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        Command::new(&self.binary)
-            .args(args)
-            .output()
+        let args = collect_args(args);
+        let description = describe(&args);
+        if self.verbose {
+            eprintln!("herdr {description}");
+        }
+
+        let mut child = Command::new(&self.binary)
+            .args(&args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
             .map_err(|error| {
                 Error::Herdr(format!(
                     "could not execute '{}': {error}",
                     self.binary.display()
                 ))
-            })
+            })?;
+
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| Error::Herdr("could not capture herdr stdout".into()))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| Error::Herdr("could not capture herdr stderr".into()))?;
+        // Drain both pipes concurrently so a chatty command cannot block on a
+        // full pipe buffer while we are waiting for it to exit.
+        let stdout_reader = thread::spawn(move || read_all(stdout));
+        let stderr_reader = thread::spawn(move || read_all(stderr));
+
+        let status = match child.wait_timeout(self.timeout) {
+            Ok(Some(status)) => status,
+            Ok(None) => {
+                terminate(&mut child, stdout_reader, stderr_reader);
+                return Err(Error::Timeout {
+                    command: format!("herdr {description}"),
+                    seconds: self.timeout.as_secs().max(1),
+                });
+            }
+            Err(error) => {
+                terminate(&mut child, stdout_reader, stderr_reader);
+                return Err(Error::Herdr(format!(
+                    "could not wait for 'herdr {description}': {error}"
+                )));
+            }
+        };
+
+        Ok(Output {
+            status,
+            stdout: stdout_reader.join().unwrap_or_default(),
+            stderr: stderr_reader.join().unwrap_or_default(),
+        })
     }
 
     /// Best-effort lookup of a workspace's first pane cwd.
@@ -302,6 +349,9 @@ impl HerdrApi for HerdrCli {
     }
 
     fn attach(&mut self) -> Result<()> {
+        if self.verbose {
+            eprintln!("herdr attach (interactive, no timeout)");
+        }
         let status = Command::new(&self.binary)
             .stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
@@ -317,6 +367,40 @@ impl HerdrApi for HerdrCli {
             )))
         }
     }
+}
+
+fn collect_args<I, S>(args: I) -> Vec<OsString>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    args.into_iter()
+        .map(|arg| arg.as_ref().to_os_string())
+        .collect()
+}
+
+fn describe(args: &[OsString]) -> String {
+    args.iter()
+        .map(|arg| arg.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn read_all(mut reader: impl Read) -> Vec<u8> {
+    let mut buffer = Vec::new();
+    let _ = reader.read_to_end(&mut buffer);
+    buffer
+}
+
+fn terminate(
+    child: &mut std::process::Child,
+    stdout: thread::JoinHandle<Vec<u8>>,
+    stderr: thread::JoinHandle<Vec<u8>>,
+) {
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = stdout.join();
+    let _ = stderr.join();
 }
 
 fn ensure_success(output: Output, description: &str) -> Result<Output> {
@@ -363,7 +447,19 @@ fn status_is_running(output: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::status_is_running;
+    use std::path::PathBuf;
+    use std::time::{Duration, Instant};
+
+    use super::{status_is_running, HerdrCli};
+    use crate::error::Error;
+
+    fn shell(timeout: Duration) -> HerdrCli {
+        HerdrCli {
+            binary: PathBuf::from("/bin/sh"),
+            verbose: false,
+            timeout,
+        }
+    }
 
     #[test]
     fn distinguishes_running_and_stopped_status() {
@@ -371,5 +467,38 @@ mod tests {
         assert!(!status_is_running(
             "status: not running\nsocket: /tmp/herdr.sock\n"
         ));
+    }
+
+    #[test]
+    fn captures_output_of_fast_commands() {
+        let output = shell(Duration::from_secs(5))
+            .raw(["-c", "printf hello"])
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"hello");
+    }
+
+    #[test]
+    fn drains_large_output_without_deadlocking() {
+        let output = shell(Duration::from_secs(5))
+            .raw(["-c", "yes x | head -c 200000"])
+            .unwrap();
+        assert_eq!(output.stdout.len(), 200_000);
+    }
+
+    #[test]
+    fn kills_commands_that_exceed_the_timeout() {
+        let started = Instant::now();
+        let error = shell(Duration::from_millis(200))
+            .raw(["-c", "sleep 30"])
+            .unwrap_err();
+        assert!(
+            matches!(&error, Error::Timeout { .. }),
+            "expected timeout, got {error:?}"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "timed out command was not killed promptly"
+        );
     }
 }

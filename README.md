@@ -91,6 +91,10 @@ Global projects live in `$HERDINATOR_CONFIG`,
 `start` also checks `.herdinator.yml`, `.tmuxinator.yml`, and a global project
 matching the current directory name.
 
+Add `-v`/`--verbose` to trace every Herdr command on stderr. Non-interactive
+Herdr commands time out after 30 seconds instead of hanging indefinitely;
+`attach` is interactive and never times out.
+
 ## Configuration
 
 ```yaml
