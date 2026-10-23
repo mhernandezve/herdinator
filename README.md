@@ -127,6 +127,10 @@ Supported project fields are `name`, `root`, `pre_window`, `startup_window`,
 `startup_pane`, `attach`, and `windows`. A window can use `root`, `layout`,
 `panes`, and `focused_pane`. Unknown and unsupported fields are errors.
 
+Window and pane names must not be purely numeric: `startup_window` and
+`focused_pane` treat bare numbers as indexes, so a name like `"0"` could never
+be selected. Numeric names are rejected at parse time.
+
 Herdinator also accepts a native `tabs` format for exact `right` and `down`
 split trees; see `examples/sample.yml`. New projects always use the tmuxinator
 format.
