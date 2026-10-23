@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -188,6 +189,28 @@ impl HerdrCli {
         })
     }
 
+    /// First pane cwd for every workspace, gathered with a single `pane list`
+    /// call instead of one call per workspace.
+    ///
+    /// Returns `None` when the global listing is unavailable, so callers can
+    /// fall back to querying each workspace individually.
+    fn pane_cwds(&self) -> Option<HashMap<String, PathBuf>> {
+        let json = self.json(["pane", "list"]).ok()?;
+        let panes = result(&json).get("panes")?.as_array()?;
+        let mut cwds = HashMap::new();
+        for pane in panes {
+            let Some(workspace_id) = pane.get("workspace_id").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(cwd) = pane.get("cwd").and_then(Value::as_str) else {
+                continue;
+            };
+            cwds.entry(workspace_id.to_string())
+                .or_insert_with(|| PathBuf::from(cwd));
+        }
+        Some(cwds)
+    }
+
     /// Best-effort lookup of a workspace's first pane cwd.
     ///
     /// A workspace without panes, or one whose `pane list` call fails, must not
@@ -249,10 +272,14 @@ impl HerdrApi for HerdrCli {
             })
             .collect::<Result<Vec<_>>>()?;
 
+        let cwds = self.pane_cwds();
         Ok(summaries
             .into_iter()
             .map(|(id, label)| {
-                let cwd = self.pane_cwd(&id);
+                let cwd = match &cwds {
+                    Some(cwds) => cwds.get(&id).cloned(),
+                    None => self.pane_cwd(&id),
+                };
                 Workspace { id, label, cwd }
             })
             .collect())
@@ -447,10 +474,14 @@ fn status_is_running(output: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
     use std::time::{Duration, Instant};
 
-    use super::{status_is_running, HerdrCli};
+    use tempfile::TempDir;
+
+    use super::{status_is_running, HerdrApi, HerdrCli};
     use crate::error::Error;
 
     fn shell(timeout: Duration) -> HerdrCli {
@@ -459,6 +490,22 @@ mod tests {
             verbose: false,
             timeout,
         }
+    }
+
+    /// Builds a HerdrCli backed by an executable shell script.
+    fn script_cli(body: &str) -> (TempDir, HerdrCli) {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("fake-herdr");
+        fs::write(&path, body).unwrap();
+        let mut permissions = fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&path, permissions).unwrap();
+        let cli = HerdrCli {
+            binary: path,
+            verbose: false,
+            timeout: Duration::from_secs(5),
+        };
+        (dir, cli)
     }
 
     #[test]
@@ -484,6 +531,60 @@ mod tests {
             .raw(["-c", "yes x | head -c 200000"])
             .unwrap();
         assert_eq!(output.stdout.len(), 200_000);
+    }
+
+    #[test]
+    fn list_workspaces_uses_a_single_pane_listing() {
+        let script = r#"#!/bin/sh
+case "$*" in
+  "workspace list") printf '%s' '{"result":{"workspaces":[
+    {"workspace_id":"w1","label":"one"},
+    {"workspace_id":"w2","label":"two"},
+    {"workspace_id":"w3","label":"empty"}]}}' ;;
+  "pane list") printf '%s' '{"result":{"panes":[
+    {"workspace_id":"w1","cwd":"/first"},
+    {"workspace_id":"w1","cwd":"/second"},
+    {"workspace_id":"w2","cwd":"/other"}]}}' ;;
+  *) printf '%s' '{"result":{"panes":[]}}' ;;
+esac
+"#;
+        let (_dir, mut cli) = script_cli(script);
+        let workspaces = cli.list_workspaces().unwrap();
+        assert_eq!(workspaces.len(), 3);
+        assert_eq!(workspaces[0].cwd, Some(PathBuf::from("/first")));
+        assert_eq!(workspaces[1].cwd, Some(PathBuf::from("/other")));
+        assert_eq!(workspaces[2].cwd, None);
+    }
+
+    #[test]
+    fn list_workspaces_falls_back_to_per_workspace_listing() {
+        let script = r#"#!/bin/sh
+case "$*" in
+  "workspace list") printf '%s' '{"result":{"workspaces":[
+    {"workspace_id":"w1","label":"one"}]}}' ;;
+  "pane list") exit 1 ;;
+  "pane list --workspace w1") printf '%s' '{"result":{"panes":[
+    {"workspace_id":"w1","cwd":"/fallback"}]}}' ;;
+  *) exit 1 ;;
+esac
+"#;
+        let (_dir, mut cli) = script_cli(script);
+        let workspaces = cli.list_workspaces().unwrap();
+        assert_eq!(workspaces[0].cwd, Some(PathBuf::from("/fallback")));
+    }
+
+    #[test]
+    fn list_workspaces_survives_a_failing_workspace_query() {
+        let script = r#"#!/bin/sh
+case "$*" in
+  "workspace list") printf '%s' '{"result":{"workspaces":[
+    {"workspace_id":"w1","label":"one"}]}}' ;;
+  *) exit 1 ;;
+esac
+"#;
+        let (_dir, mut cli) = script_cli(script);
+        let workspaces = cli.list_workspaces().unwrap();
+        assert_eq!(workspaces[0].cwd, None);
     }
 
     #[test]
