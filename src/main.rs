@@ -5,7 +5,7 @@ use std::process::{Command as ProcessCommand, Stdio};
 
 use clap::Parser;
 use herdinator::cli::{Cli, Command};
-use herdinator::config::{template, ConfigStore, ProjectPlan};
+use herdinator::config::{template, ConfigStore, LoadOptions, ProjectPlan};
 use herdinator::herdr::{HerdrApi, HerdrCli};
 use herdinator::project::{ProjectManager, StartOutcome};
 use herdinator::{Error, Result};
@@ -28,11 +28,13 @@ fn run(cli: Cli) -> Result<()> {
             project,
             project_config,
             name,
+            root,
             no_attach,
             restart,
         } => {
             let path = store.resolve(project.as_deref(), project_config.as_deref())?;
-            let plan = ProjectPlan::from_file(&path, name.as_deref())?;
+            let plan =
+                ProjectPlan::from_file(&path, &load_options(name.as_deref(), root.as_deref())?)?;
             let attach = plan.attach && !no_attach;
             validate_attach(attach)?;
             let mut manager = ProjectManager::new(HerdrCli::new().verbose(verbose));
@@ -92,7 +94,7 @@ fn run(cli: Cli) -> Result<()> {
         }
         Command::Stop { project } => {
             let path = store.resolve(Some(&project), None)?;
-            let plan = ProjectPlan::from_file(&path, None)?;
+            let plan = ProjectPlan::from_file(&path, &load_options(None, None)?)?;
             ProjectManager::new(HerdrCli::new().verbose(verbose)).stop(&plan)?;
             println!("Stopped workspace '{}'", plan.name);
         }
@@ -111,9 +113,11 @@ fn run(cli: Cli) -> Result<()> {
             project,
             project_config,
             name,
+            root,
         } => {
             let path = store.resolve(project.as_deref(), project_config.as_deref())?;
-            let plan = ProjectPlan::from_file(&path, name.as_deref())?;
+            let plan =
+                ProjectPlan::from_file(&path, &load_options(name.as_deref(), root.as_deref())?)?;
             let output = serde_yaml::to_string(&plan)
                 .map_err(|error| Error::InvalidConfig(error.to_string()))?;
             print!("{output}");
@@ -121,6 +125,16 @@ fn run(cli: Cli) -> Result<()> {
         Command::Doctor => doctor(&store, verbose)?,
     }
     Ok(())
+}
+
+/// Overrides for one project load, with the working directory resolved here so
+/// `config` stays independent of process-global state.
+fn load_options(name: Option<&str>, root: Option<&Path>) -> Result<LoadOptions> {
+    Ok(LoadOptions {
+        name: name.map(str::to_owned),
+        root: root.map(Path::to_path_buf),
+        default_root: Some(std::env::current_dir()?),
+    })
 }
 
 fn validate_attach(attach: bool) -> Result<()> {

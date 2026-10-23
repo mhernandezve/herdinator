@@ -89,6 +89,7 @@ herdinator start shop
 herdinator start shop --no-attach
 herdinator start shop --restart
 herdinator start -p ./project.yml
+herdinator start -p ./project.yml -n ticket-127 --root ~/tickets/127 --no-attach
 herdinator list
 herdinator debug shop
 herdinator stop shop
@@ -140,6 +141,10 @@ at a time, preserving tmuxinator's send-keys semantics.
 Supported project fields are `name`, `root`, `pre_window`, `startup_window`,
 `startup_pane`, `attach`, and `windows`. A window can use `root`, `layout`,
 `panes`, and `focused_pane`. Unknown and unsupported fields are errors.
+
+If `root` is omitted from the project file, the current working directory is
+used, matching tmuxinator. Use `--root` on the command line to override the
+project root without editing the file; the directory must already exist.
 
 Window and pane names must not be purely numeric: `startup_window` and
 `focused_pane` treat bare numbers as indexes, so a name like `"0"` could never
