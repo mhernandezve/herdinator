@@ -538,7 +538,6 @@ fn status_is_running(output: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use std::fs;
-    use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
     use std::time::{Duration, Instant};
 
@@ -556,14 +555,18 @@ mod tests {
         }
     }
 
-    /// Builds a HerdrCli backed by an executable shell script.
-    fn script_cli(body: &str) -> (TempDir, HerdrCli) {
+    /// Builds a HerdrCli backed by the shared fake-herdr fixture.
+    ///
+    /// The fixture is a checked-in file, so `exec` never touches bytes written
+    /// at runtime: writing an executable and immediately running it races with
+    /// concurrent forks and fails intermittently with ETXTBSY.
+    fn script_cli(mode: &str) -> (TempDir, HerdrCli) {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join("fake-herdr");
-        fs::write(&path, body).unwrap();
-        let mut permissions = fs::metadata(&path).unwrap().permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(&path, permissions).unwrap();
+        let fixture =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake-herdr.sh");
+        std::os::unix::fs::symlink(&fixture, &path).unwrap();
+        fs::write(dir.path().join("mode"), mode).unwrap();
         let cli = HerdrCli {
             binary: path,
             verbose: false,
@@ -600,20 +603,7 @@ mod tests {
 
     #[test]
     fn list_workspaces_uses_a_single_pane_listing() {
-        let script = r#"#!/bin/sh
-case "$*" in
-  "workspace list") printf '%s' '{"result":{"workspaces":[
-    {"workspace_id":"w1","label":"one"},
-    {"workspace_id":"w2","label":"two"},
-    {"workspace_id":"w3","label":"empty"}]}}' ;;
-  "pane list") printf '%s' '{"result":{"panes":[
-    {"workspace_id":"w1","cwd":"/first"},
-    {"workspace_id":"w1","cwd":"/second"},
-    {"workspace_id":"w2","cwd":"/other"}]}}' ;;
-  *) printf '%s' '{"result":{"panes":[]}}' ;;
-esac
-"#;
-        let (_dir, mut cli) = script_cli(script);
+        let (_dir, mut cli) = script_cli("grouping");
         let workspaces = cli.list_workspaces().unwrap();
         assert_eq!(workspaces.len(), 3);
         assert_eq!(workspaces[0].cwd, Some(PathBuf::from("/first")));
@@ -623,44 +613,21 @@ esac
 
     #[test]
     fn list_workspaces_falls_back_to_per_workspace_listing() {
-        let script = r#"#!/bin/sh
-case "$*" in
-  "workspace list") printf '%s' '{"result":{"workspaces":[
-    {"workspace_id":"w1","label":"one"}]}}' ;;
-  "pane list") exit 1 ;;
-  "pane list --workspace w1") printf '%s' '{"result":{"panes":[
-    {"workspace_id":"w1","cwd":"/fallback"}]}}' ;;
-  *) exit 1 ;;
-esac
-"#;
-        let (_dir, mut cli) = script_cli(script);
+        let (_dir, mut cli) = script_cli("fallback");
         let workspaces = cli.list_workspaces().unwrap();
         assert_eq!(workspaces[0].cwd, Some(PathBuf::from("/fallback")));
     }
 
     #[test]
     fn list_workspaces_survives_a_failing_workspace_query() {
-        let script = r#"#!/bin/sh
-case "$*" in
-  "workspace list") printf '%s' '{"result":{"workspaces":[
-    {"workspace_id":"w1","label":"one"}]}}' ;;
-  *) exit 1 ;;
-esac
-"#;
-        let (_dir, mut cli) = script_cli(script);
+        let (_dir, mut cli) = script_cli("failing");
         let workspaces = cli.list_workspaces().unwrap();
         assert_eq!(workspaces[0].cwd, None);
     }
 
     #[test]
     fn machine_target_prefixes_api_commands() {
-        let script = r#"#!/bin/sh
-case "$*" in
-  "--machine box pane list") printf '%s' '{"result":{"panes":[]}}' ;;
-  *) exit 1 ;;
-esac
-"#;
-        let (_dir, cli) = script_cli(script);
+        let (_dir, cli) = script_cli("machine");
         let cli = cli.target(HerdrTarget::Machine("box".into()));
         assert_eq!(
             cli.json(["pane", "list"]).unwrap()["result"]["panes"],
@@ -670,27 +637,14 @@ esac
 
     #[test]
     fn version_checks_stay_local_for_machine_targets() {
-        let script = r#"#!/bin/sh
-case "$*" in
-  "--version") printf 'herdr 0.9.1\n' ;;
-  *) exit 1 ;;
-esac
-"#;
-        let (_dir, cli) = script_cli(script);
+        let (_dir, cli) = script_cli("machine");
         let cli = cli.target(HerdrTarget::Machine("box".into()));
         assert_eq!(cli.version().unwrap(), "herdr 0.9.1");
     }
 
     #[test]
     fn ensure_server_refuses_to_start_a_remote_server() {
-        let script = r#"#!/bin/sh
-case "$*" in
-  "--version") printf 'herdr 0.9.1\n' ;;
-  "--machine box status server") printf 'status: not running\n' ;;
-  *) exit 1 ;;
-esac
-"#;
-        let (_dir, mut cli) = script_cli(script);
+        let (_dir, mut cli) = script_cli("remote-down");
         cli.target = HerdrTarget::Machine("box".into());
         let error = cli.ensure_server().unwrap_err();
         assert!(
