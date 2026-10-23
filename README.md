@@ -19,6 +19,13 @@ tmuxinator conventions, and starts an existing matching workspace instead of
 creating a duplicate. Use `new`, `open`, `edit`, `copy`, `delete`, and `list`
 to manage the project configuration lifecycle.
 
+A workspace matches a project when both its name and its first tab root match
+the configuration. `start` only focuses a matching workspace: configuration
+edits are **not** applied to a workspace that is already running. To rebuild a
+project after editing its configuration, use `herdinator start <project>
+--restart` (or `stop` followed by `start`). Restarting closes the workspace,
+so panes and the processes running in them are lost.
+
 ## Next Steps
 
 Herdinator will extend named project management to saved Herdr SSH machines. A
@@ -80,6 +87,7 @@ cargo install --path .
 herdinator new shop
 herdinator start shop
 herdinator start shop --no-attach
+herdinator start shop --restart
 herdinator start -p ./project.yml
 herdinator list
 herdinator debug shop
@@ -90,6 +98,16 @@ Global projects live in `$HERDINATOR_CONFIG`,
 `$XDG_CONFIG_HOME/herdinator`, or `~/.config/herdinator`. With no project name,
 `start` also checks `.herdinator.yml`, `.tmuxinator.yml`, and a global project
 matching the current directory name.
+
+Add `-v`/`--verbose` to trace every Herdr command on stderr. Non-interactive
+Herdr commands time out after 30 seconds instead of hanging indefinitely;
+`attach` is interactive and never times out.
+
+### Herdr server lifecycle
+
+`start` and `stop` start the Herdr server when it is not running, waiting up to
+five seconds before failing. No other command starts a server: `doctor` only
+reports its state.
 
 ## Configuration
 
@@ -123,6 +141,10 @@ Supported project fields are `name`, `root`, `pre_window`, `startup_window`,
 `startup_pane`, `attach`, and `windows`. A window can use `root`, `layout`,
 `panes`, and `focused_pane`. Unknown and unsupported fields are errors.
 
+Window and pane names must not be purely numeric: `startup_window` and
+`focused_pane` treat bare numbers as indexes, so a name like `"0"` could never
+be selected. Numeric names are rejected at parse time.
+
 Herdinator also accepts a native `tabs` format for exact `right` and `down`
 split trees; see `examples/sample.yml`. New projects always use the tmuxinator
 format.
@@ -131,6 +153,12 @@ format.
 
 Hooks, ERB, custom tmux layout strings, sockets, synchronization, `append`, and
 session import are not supported yet.
+
+Herdr cannot focus an arbitrary pane by id: `herdr pane focus` only moves to a
+neighbouring pane. `focused_pane` and `startup_pane` are applied with
+`herdr pane zoom <pane_id> --off`, which focuses the pane and leaves it
+unzoomed, so the call is idempotent. This will switch to a first-class focus
+command if Herdr adds one.
 
 ## Contributing
 

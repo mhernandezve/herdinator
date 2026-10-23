@@ -145,7 +145,7 @@ impl ProjectPlan {
                 "duplicate window name '{duplicate}'"
             )));
         }
-        let startup_tab = selector_index(raw.startup_window.as_ref(), &tabs);
+        let startup_tab = selector_index(raw.startup_window.as_ref(), &tabs)?;
         let startup_panes = collect_panes(&tabs[startup_tab].layout);
         validate_pane_selector("startup window", raw.startup_pane.as_ref(), &startup_panes)?;
 
@@ -177,6 +177,7 @@ fn parse_window(
             ))
         }
     };
+    reject_numeric_name("window", &name)?;
 
     if value.is_mapping() {
         let body: RawWindowBody = serde_yaml::from_value(value)
@@ -236,6 +237,9 @@ fn parse_pane(value: Value, pre_window: &[String]) -> Result<PanePlan> {
                 ))
             }
         };
+        if let Some(name) = &name {
+            reject_numeric_name("pane", name)?;
+        }
         (name, parse_commands(&value)?)
     } else {
         (None, parse_commands(&value)?)
@@ -284,6 +288,7 @@ fn parse_native_tab(
     if tab.name.trim().is_empty() {
         return Err(Error::InvalidConfig("tab name cannot be empty".into()));
     }
+    reject_numeric_name("tab", &tab.name)?;
     let root = match tab.root {
         Some(root) => expand_directory(&root, &format!("root for tab '{}'", tab.name))?,
         None => project_root.to_path_buf(),
@@ -358,6 +363,9 @@ fn parse_native_node(value: Value) -> Result<LayoutNode> {
                 )),
             })
             .transpose()?;
+        if let Some(name) = &name {
+            reject_numeric_name("pane", name)?;
+        }
         let command = mapping
             .get(Value::String("command".into()))
             .or_else(|| mapping.get(Value::String("commands".into())));
@@ -389,6 +397,18 @@ fn collect_panes(node: &LayoutNode) -> Vec<PanePlan> {
             panes
         }
     }
+}
+
+/// Purely numeric window/pane names are ambiguous: `startup_window: 0` and
+/// `focused_pane: 0` are parsed as indexes by the untagged `Selector`, so such
+/// names could never be selected by name.
+fn reject_numeric_name(kind: &str, name: &str) -> Result<()> {
+    if name.chars().all(|character| character.is_ascii_digit()) {
+        return Err(Error::InvalidConfig(format!(
+            "{kind} name '{name}' is numeric, which is ambiguous with an index selector; use a non-numeric name"
+        )));
+    }
+    Ok(())
 }
 
 fn validate_pane_selector(
@@ -424,14 +444,19 @@ fn validate_unique_pane_names(window: &str, panes: &[PanePlan]) -> Result<()> {
     Ok(())
 }
 
-fn selector_index(selector: Option<&Selector>, tabs: &[TabPlan]) -> usize {
+fn selector_index(selector: Option<&Selector>, tabs: &[TabPlan]) -> Result<usize> {
     match selector {
-        None => 0,
-        Some(Selector::Index(index)) => *index,
-        Some(Selector::Name(name)) => tabs
-            .iter()
-            .position(|tab| &tab.name == name)
-            .expect("startup_window was validated"),
+        None => Ok(0),
+        Some(Selector::Index(index)) => Ok(*index),
+        Some(Selector::Name(name)) => {
+            tabs.iter()
+                .position(|tab| &tab.name == name)
+                .ok_or_else(|| {
+                    Error::InvalidConfig(
+                        "startup_window does not identify a configured window".into(),
+                    )
+                })
+        }
     }
 }
 
@@ -711,5 +736,66 @@ mod tests {
             fs::read_to_string(store.global_dir.join("sample.yml")).unwrap(),
             "custom"
         );
+    }
+
+    #[test]
+    fn rejects_numeric_window_and_pane_names() {
+        let temp = TempDir::new().unwrap();
+        let numeric_window = format!(
+            "name: app\nroot: {}\nwindows:\n  - \"0\": echo hi\n",
+            temp.path().display()
+        );
+        let error =
+            ProjectPlan::from_file(&write_config(temp.path(), &numeric_window), None).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("ambiguous with an index selector"),
+            "{error}"
+        );
+
+        let numeric_pane = format!(
+            "name: app\nroot: {}\nwindows:\n  - dev:\n      panes:\n        - \"0\": vim\n",
+            temp.path().display()
+        );
+        let error =
+            ProjectPlan::from_file(&write_config(temp.path(), &numeric_pane), None).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("ambiguous with an index selector"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn rejects_numeric_native_tab_name() {
+        let temp = TempDir::new().unwrap();
+        let yaml = format!(
+            "name: app\nroot: {}\ntabs:\n  - name: \"0\"\n    layout:\n      split: right\n      panes:\n        - name: a\n        - name: b\n",
+            temp.path().display()
+        );
+        let error = ProjectPlan::from_file(&write_config(temp.path(), &yaml), None).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("ambiguous with an index selector"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn selector_index_reports_missing_name_instead_of_panicking() {
+        let tabs = vec![TabPlan {
+            name: "dev".into(),
+            root: PathBuf::from("/tmp"),
+            focused_pane: None,
+            layout: LayoutNode::pane(PanePlan {
+                name: None,
+                commands: vec![],
+            }),
+        }];
+        let error = selector_index(Some(&Selector::Name("missing".into())), &tabs).unwrap_err();
+        assert!(error.to_string().contains("startup_window"), "{error}");
     }
 }

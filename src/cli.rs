@@ -9,6 +9,10 @@ use clap::{Parser, Subcommand};
     about = "Create and manage Herdr workspaces from tmuxinator-style YAML"
 )]
 pub struct Cli {
+    /// Trace every Herdr command on stderr
+    #[arg(short = 'v', long, global = true)]
+    pub verbose: bool,
+
     #[command(subcommand)]
     pub command: Command,
 }
@@ -29,6 +33,9 @@ pub enum Command {
         /// Prepare the workspace without opening Herdr
         #[arg(long)]
         no_attach: bool,
+        /// Close and rebuild an existing workspace so config edits apply
+        #[arg(long)]
+        restart: bool,
     },
     /// Create a project configuration and open it in $VISUAL or $EDITOR
     #[command(alias = "n")]

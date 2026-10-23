@@ -21,6 +21,9 @@ pub enum Error {
     #[error("herdr command failed: {0}")]
     Herdr(String),
 
+    #[error("`{command}` timed out after {seconds}s; check that the Herdr server is healthy")]
+    Timeout { command: String, seconds: u64 },
+
     #[error("workspace conflict: {0}")]
     WorkspaceConflict(String),
 
