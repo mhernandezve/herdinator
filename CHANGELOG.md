@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/mhernandezve/herdinator/compare/v0.2.0...v0.3.0) (2026-10-23)
+
+
+### Features
+
+* harden the Herdr adapter and project lifecycle ([#35](https://github.com/mhernandezve/herdinator/issues/35)) ([ab3b1f2](https://github.com/mhernandezve/herdinator/commit/ab3b1f297e07179ae6feb658625779475b1e0a39))
+
 ## [0.2.0](https://github.com/mhernandezve/herdinator/compare/v0.1.3...v0.2.0) (2026-09-27)
 
 
